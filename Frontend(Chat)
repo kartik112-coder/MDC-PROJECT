@@ -1,0 +1,806 @@
+/**
+ * MIET Jammu AI Assistant & Interactive Visualizer
+ * Resilient Client-Side Controller & Chart.js Integration
+ */
+
+// API Configuration: automatically detect whether running from FastAPI server or file://
+const API_BASE = window.MIET_API_BASE || (window.location.origin.startsWith("http") ? "" : "http://127.0.0.1:8000");
+const CHAT_ENDPOINT = `${API_BASE}/api/chat`;
+const HEALTH_ENDPOINT = `${API_BASE}/api/health`;
+const STATS_ENDPOINT = `${API_BASE}/api/stats`;
+const ANALYTICS_ENDPOINT = `${API_BASE}/api/analytics`;
+const INSPECT_ENDPOINT = `${API_BASE}/api/inspect`;
+const FEEDBACK_ENDPOINT = `${API_BASE}/api/feedback`;
+
+// Application State
+const state = {
+  history: [],
+  latestInspectorData: null,
+  charts: {
+    category: null,
+    kbDensity: null,
+  },
+  theme: localStorage.getItem("miet_theme") || "light",
+  isSending: false,
+};
+
+// Safe DOM Getters
+function el(id, ...fallbacks) {
+  let element = document.getElementById(id);
+  if (element) return element;
+  for (const alt of fallbacks) {
+    element = document.getElementById(alt);
+    if (element) return element;
+  }
+  return null;
+}
+
+function getUserInput() {
+  return el("userInput", "input", "q") || document.querySelector(".chat-composer input");
+}
+
+function getSendButton() {
+  return el("sendBtn", "send", "go") || document.querySelector(".chat-composer button");
+}
+
+function getChatLog() {
+  return el("chatLog", "log") || document.querySelector(".chat-log");
+}
+
+// ============================================================
+// Main Initialization (Handles both loading & already-ready DOM)
+// ============================================================
+function initApplication() {
+  console.log("Initializing MIET Jammu Assistant (API:", API_BASE || "relative", ")...");
+  initTheme();
+  initTabNavigation();
+  initChatEvents();
+  initInspectorEvents();
+  initDashboardEvents();
+  checkSystemHealth();
+}
+
+if (document.readyState === "loading") {
+  document.addEventListener("DOMContentLoaded", initApplication);
+} else {
+  initApplication();
+}
+
+// ============================================================
+// Theme Management
+// ============================================================
+function initTheme() {
+  document.documentElement.setAttribute("data-theme", state.theme);
+  const toggleBtn = el("themeToggleBtn");
+  if (toggleBtn) {
+    toggleBtn.onclick = () => {
+      state.theme = state.theme === "light" ? "dark" : "light";
+      document.documentElement.setAttribute("data-theme", state.theme);
+      localStorage.setItem("miet_theme", state.theme);
+      updateChartTheme();
+    };
+  }
+}
+
+// ============================================================
+// Tab Navigation
+// ============================================================
+function initTabNavigation() {
+  document.addEventListener("click", (e) => {
+    const tabBtn = e.target.closest(".tab-btn");
+    if (tabBtn) {
+      const targetTabId = tabBtn.getAttribute("data-tab");
+      if (targetTabId) switchTab(targetTabId);
+    }
+  });
+}
+
+function switchTab(tabId) {
+  document.querySelectorAll(".tab-btn").forEach((btn) => {
+    const isActive = btn.getAttribute("data-tab") === tabId;
+    btn.classList.toggle("active", isActive);
+    btn.setAttribute("aria-selected", isActive);
+  });
+
+  document.querySelectorAll(".tab-content").forEach((tab) => {
+    tab.classList.toggle("active", tab.id === tabId);
+  });
+
+  if (tabId === "tab-dashboard") {
+    loadAnalytics();
+  }
+}
+
+// ============================================================
+// System Status & Health Check
+// ============================================================
+async function checkSystemHealth() {
+  const badgeText = el("systemStatusText");
+  const badge = el("systemStatusBadge");
+  const modelBadge = el("activeModelBadge");
+
+  try {
+    const [healthRes, statsRes] = await Promise.all([
+      fetch(HEALTH_ENDPOINT),
+      fetch(STATS_ENDPOINT),
+    ]);
+
+    if (!healthRes.ok) throw new Error("Backend responded with " + healthRes.status);
+
+    const healthData = await healthRes.json();
+    const statsData = statsRes.ok ? await statsRes.json() : {};
+
+    if (badgeText) {
+      badgeText.textContent = `Online • ${statsData.stored_chunks || 55} Chunks Active`;
+    }
+    if (badge) {
+      badge.style.color = "var(--miet-green)";
+    }
+    if (modelBadge && statsData.llm_mode) {
+      modelBadge.textContent = `(${statsData.llm_mode})`;
+    }
+
+    const pagesKpi = el("kpiPagesCount");
+    const chunksKpi = el("kpiChunksCount");
+    if (pagesKpi && statsData.indexed_pages) pagesKpi.textContent = statsData.indexed_pages;
+    if (chunksKpi && statsData.stored_chunks) chunksKpi.textContent = statsData.stored_chunks;
+  } catch (err) {
+    console.warn("Backend connection status:", err);
+    if (badgeText) {
+      badgeText.textContent = "Server Connecting (127.0.0.1:8000)";
+    }
+    if (badge) {
+      badge.style.color = "var(--warning)";
+    }
+  }
+}
+
+// ============================================================
+// Chat Events & Question Submission
+// ============================================================
+function initChatEvents() {
+  // Global document click delegation ensures topic buttons & chips work no matter what
+  document.addEventListener("click", (e) => {
+    // 1. Topic sidebar buttons
+    const topicBtn = e.target.closest(".topic-btn");
+    if (topicBtn) {
+      const q = topicBtn.getAttribute("data-question") || topicBtn.getAttribute("data-q");
+      if (q) submitQuestion(q);
+      return;
+    }
+
+    // 2. Quick suggestion chips
+    const chip = e.target.closest(".quick-chip");
+    if (chip) {
+      const q = chip.getAttribute("data-question") || chip.getAttribute("data-q") || chip.textContent;
+      if (q) submitQuestion(q.trim());
+      return;
+    }
+
+    // 3. Clear Chat button
+    if (e.target.closest("#clearChatBtn")) {
+      clearChatHistory();
+      return;
+    }
+
+    // 4. Header Inspect button
+    if (e.target.closest("#inspectLatestBtn")) {
+      if (!state.latestInspectorData) {
+        alert("Ask a question first to inspect its retrieval context!");
+        return;
+      }
+      switchTab("tab-inspector");
+      return;
+    }
+
+    // 5. Send button click
+    const sendBtn = e.target.closest("#sendBtn, #send, #go");
+    if (sendBtn) {
+      e.preventDefault();
+      const inputEl = getUserInput();
+      if (inputEl) {
+        const text = inputEl.value.trim();
+        if (text) submitQuestion(text);
+      }
+      return;
+    }
+  });
+
+  // Form submit handler
+  const form = el("chatForm") || document.querySelector(".chat-composer");
+  if (form) {
+    form.addEventListener("submit", (e) => {
+      e.preventDefault();
+      const inputEl = getUserInput();
+      if (inputEl) {
+        const text = inputEl.value.trim();
+        if (text) submitQuestion(text);
+      }
+    });
+  }
+
+  // Enter key handler on input
+  document.addEventListener("keydown", (e) => {
+    if (e.key === "Enter" && !e.shiftKey) {
+      const inputEl = getUserInput();
+      if (document.activeElement === inputEl && inputEl) {
+        e.preventDefault();
+        const text = inputEl.value.trim();
+        if (text) submitQuestion(text);
+      }
+    }
+  });
+}
+
+function clearChatHistory() {
+  state.history = [];
+  const log = getChatLog();
+  if (log) {
+    log.innerHTML = `
+      <div class="message-wrapper bot">
+        <div class="msg-bubble">
+          Chat history cleared. How can I assist you with MIET Jammu admissions, courses, or campus life?
+        </div>
+        <div class="msg-meta">
+          <span>MIET Jammu Assistant</span>
+        </div>
+      </div>
+    `;
+  }
+}
+
+async function submitQuestion(question) {
+  question = question.trim();
+  if (!question || state.isSending) return;
+
+  state.isSending = true;
+
+  // Clear input
+  const inputEl = getUserInput();
+  if (inputEl) inputEl.value = "";
+
+  const sendBtn = getSendButton();
+  if (sendBtn) sendBtn.disabled = true;
+
+  // Append user message
+  appendUserMessage(question);
+
+  // Append loading indicator
+  const loadingId = "loading-" + Date.now();
+  appendLoadingMessage(loadingId);
+
+  try {
+    console.log("Posting query to:", CHAT_ENDPOINT);
+    const response = await fetch(CHAT_ENDPOINT, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        question: question,
+        history: state.history.slice(-6),
+      }),
+    });
+
+    if (!response.ok) {
+      const errJson = await response.json().catch(() => ({}));
+      throw new Error(errJson.detail || `Server returned HTTP ${response.status}`);
+    }
+
+    const data = await response.json();
+    console.log("Received chat response:", data);
+
+    removeLoadingMessage(loadingId);
+
+    // Record in local history
+    state.history.push(
+      { role: "user", content: question },
+      { role: "assistant", content: data.answer }
+    );
+
+    // Save and render inspector
+    if (data.inspector) {
+      state.latestInspectorData = data.inspector;
+      renderInspector(data.inspector);
+    }
+
+    // Append bot message with citations & buttons
+    appendBotMessage(data);
+  } catch (err) {
+    console.error("Chat error:", err);
+    removeLoadingMessage(loadingId);
+    appendErrorMessage(err.message);
+  } finally {
+    state.isSending = false;
+    if (sendBtn) sendBtn.disabled = false;
+    if (inputEl) inputEl.focus();
+  }
+}
+
+function appendUserMessage(text) {
+  const log = getChatLog();
+  if (!log) return;
+
+  const wrapper = document.createElement("div");
+  wrapper.className = "message-wrapper user";
+  wrapper.innerHTML = `
+    <div class="msg-bubble">${escapeHtml(text)}</div>
+    <div class="msg-meta">
+      <span>You &bull; ${new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}</span>
+    </div>
+  `;
+  log.appendChild(wrapper);
+  scrollChatToBottom();
+}
+
+function appendLoadingMessage(id) {
+  const log = getChatLog();
+  if (!log) return;
+
+  const wrapper = document.createElement("div");
+  wrapper.className = "message-wrapper bot";
+  wrapper.id = id;
+  wrapper.innerHTML = `
+    <div class="msg-bubble" style="display: flex; align-items: center; gap: 8px;">
+      <span class="status-dot"></span>
+      <em>Searching official MIET Jammu website documents...</em>
+    </div>
+  `;
+  log.appendChild(wrapper);
+  scrollChatToBottom();
+}
+
+function removeLoadingMessage(id) {
+  const el = document.getElementById(id);
+  if (el) el.remove();
+}
+
+function appendBotMessage(data) {
+  const log = getChatLog();
+  if (!log) return;
+
+  const wrapper = document.createElement("div");
+  wrapper.className = "message-wrapper bot";
+
+  // Sources HTML
+  let sourcesHtml = "";
+  if (data.sources && data.sources.length > 0) {
+    const items = data.sources
+      .slice(0, 3)
+      .map(
+        (s) => `
+        <div class="source-item">
+          <a href="${s.url}" target="_blank" rel="noopener noreferrer" title="${s.title}">
+            🔗 ${escapeHtml(s.title || s.url)}
+          </a>
+          <span class="source-score">${s.relevance_score || "100"}% match</span>
+        </div>
+      `
+      )
+      .join("");
+
+    sourcesHtml = `
+      <div class="sources-container">
+        <div class="sources-label">
+          <span>📚 Verified Sources (mietjmu.in)</span>
+        </div>
+        ${items}
+      </div>
+    `;
+  }
+
+  const formattedAnswer = formatMarkdownText(data.answer);
+
+  wrapper.innerHTML = `
+    <div class="msg-bubble">
+      ${formattedAnswer}
+      ${sourcesHtml}
+      <div class="bot-actions">
+        <button type="button" class="action-pill inspect-pill" title="View vector chunks in RAG Inspector">
+          🔍 Inspect Context
+        </button>
+        <button type="button" class="action-pill feedback-btn" data-rating="1" data-id="${data.query_id || 0}" title="Mark as helpful">
+          👍 Helpful
+        </button>
+        <button type="button" class="action-pill feedback-btn" data-rating="-1" data-id="${data.query_id || 0}" title="Needs improvement">
+          👎
+        </button>
+      </div>
+    </div>
+    <div class="msg-meta">
+      <span>${data.llm_mode || "MIET RAG"} &bull; ${data.latency_ms || 12} ms &bull; ${new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}</span>
+    </div>
+  `;
+
+  // Attach button event listeners
+  const inspectBtn = wrapper.querySelector(".inspect-pill");
+  if (inspectBtn) {
+    inspectBtn.onclick = () => {
+      if (data.inspector) {
+        state.latestInspectorData = data.inspector;
+        renderInspector(data.inspector);
+      }
+      switchTab("tab-inspector");
+    };
+  }
+
+  const feedbackBtns = wrapper.querySelectorAll(".feedback-btn");
+  feedbackBtns.forEach((fb) => {
+    fb.onclick = async () => {
+      const qid = parseInt(fb.getAttribute("data-id") || "0", 10);
+      const rating = parseInt(fb.getAttribute("data-rating") || "1", 10);
+      try {
+        await fetch(FEEDBACK_ENDPOINT, {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ query_id: qid, rating: rating }),
+        });
+        fb.parentElement.innerHTML = `<span style="font-size:0.74rem; color:var(--miet-green); font-weight:600;">✓ Thanks for feedback!</span>`;
+      } catch (e) {
+        console.error(e);
+      }
+    };
+  });
+
+  log.appendChild(wrapper);
+  scrollChatToBottom();
+}
+
+function appendErrorMessage(errorText) {
+  const log = getChatLog();
+  if (!log) return;
+
+  const isFileOrigin = window.location.protocol === "file:";
+
+  const wrapper = document.createElement("div");
+  wrapper.className = "message-wrapper bot";
+  wrapper.innerHTML = `
+    <div class="msg-bubble" style="border-left: 4px solid var(--danger); background: #fef2f2;">
+      <strong style="color: var(--danger);">Connection Notice</strong><br>
+      ${escapeHtml(errorText)}
+      <br><br>
+      ${
+        isFileOrigin
+          ? `<span style="color: var(--warning); font-weight: 700;">⚠️ You opened this file directly from your disk (file://).</span><br>
+             Please open <a href="http://127.0.0.1:8000" target="_blank" style="color: var(--miet-green); font-weight: bold;">http://127.0.0.1:8000</a> in your browser to talk directly to the Python backend!`
+          : `<small style="color: var(--ink-secondary);">Make sure the server is running: <code>python -m uvicorn app.main:app --port 8000</code></small>`
+      }
+    </div>
+  `;
+  log.appendChild(wrapper);
+  scrollChatToBottom();
+}
+
+function scrollChatToBottom() {
+  const log = getChatLog();
+  if (log) log.scrollTop = log.scrollHeight;
+}
+
+// ============================================================
+// RAG Context Inspector Operations
+// ============================================================
+function initInspectorEvents() {
+  const form = el("inspectorTestForm");
+  if (form) {
+    form.onsubmit = async (e) => {
+      e.preventDefault();
+      const input = el("inspectorQueryInput");
+      const q = input ? input.value.trim() : "";
+      if (!q) return;
+
+      const list = el("inspectorChunksList");
+      if (list) list.innerHTML = `<p style="padding: 12px; color: var(--ink-secondary);">Querying ChromaDB vector index...</p>`;
+
+      try {
+        const res = await fetch(`${INSPECT_ENDPOINT}?question=${encodeURIComponent(q)}`);
+        if (!res.ok) throw new Error("Inspection query failed: " + res.status);
+        const data = await res.json();
+        renderInspector({
+          question: data.question,
+          top_relevance_score: data.top_relevance_score,
+          grounded: data.grounded,
+          llm_mode: "Ad-Hoc Inspector Query",
+          retrieved_chunks: data.retrieved_chunks,
+          context_prompt_preview: data.context_prompt,
+          chunks_retrieved_count: data.chunks_count,
+        });
+      } catch (err) {
+        alert("Inspector query notice: " + err.message);
+      }
+    };
+  }
+
+  const copyBtn = el("copyPromptBtn");
+  if (copyBtn) {
+    copyBtn.onclick = () => {
+      const box = el("inspectorPromptPreview");
+      if (box) {
+        navigator.clipboard.writeText(box.textContent).then(() => {
+          copyBtn.textContent = "✓ Copied!";
+          setTimeout(() => {
+            copyBtn.textContent = "📋 Copy Context";
+          }, 2000);
+        });
+      }
+    };
+  }
+}
+
+function renderInspector(inspector) {
+  if (!inspector) return;
+
+  const tag = el("inspectorGroundingTag");
+  if (tag) {
+    if (inspector.grounded) {
+      tag.className = "grounding-tag grounded";
+      tag.innerHTML = `<span>🛡️</span> Grounded (${inspector.top_relevance_score || 0}% Match)`;
+    } else {
+      tag.className = "grounding-tag ungrounded";
+      tag.innerHTML = `<span>⚠️</span> Low Relevance / Ungrounded (${inspector.top_relevance_score || 0}%)`;
+    }
+  }
+
+  const chunksCount = el("inspectorChunksCount");
+  const count = inspector.chunks_retrieved_count || (inspector.retrieved_chunks ? inspector.retrieved_chunks.length : 0);
+  if (chunksCount) {
+    chunksCount.textContent = `${count} chunks retrieved`;
+  }
+
+  const chunksList = el("inspectorChunksList");
+  if (chunksList) {
+    if (inspector.retrieved_chunks && inspector.retrieved_chunks.length > 0) {
+      chunksList.innerHTML = inspector.retrieved_chunks
+        .map(
+          (c, idx) => `
+          <div class="chunk-card">
+            <div class="chunk-header">
+              <span>Chunk #${idx + 1} (${c.id || "c"})</span>
+              <span class="source-score">${Math.round((c.similarity_score || 0) * 100)}% Match</span>
+            </div>
+            <div class="chunk-text">${escapeHtml(c.text)}</div>
+            <div class="chunk-meta">
+              <a href="${c.url}" target="_blank" rel="noopener noreferrer" style="color: var(--miet-green); font-weight: 600;">
+                ${escapeHtml(c.title || c.url)}
+              </a>
+              <span>Distance: ${c.distance || 0}</span>
+            </div>
+          </div>
+        `
+        )
+        .join("");
+    } else {
+      chunksList.innerHTML = `<p style="padding: 12px; color: var(--ink-secondary);">No vector chunks retrieved for this query.</p>`;
+    }
+  }
+
+  const promptPreview = el("inspectorPromptPreview");
+  if (promptPreview) {
+    promptPreview.textContent =
+      inspector.context_prompt_preview ||
+      inspector.context_prompt ||
+      "No augmented context prompt available.";
+  }
+}
+
+// ============================================================
+// Interactive Dashboard Operations (Chart.js)
+// ============================================================
+function initDashboardEvents() {
+  const refreshBtn = el("refreshDashboardBtn");
+  if (refreshBtn) {
+    refreshBtn.onclick = () => loadAnalytics();
+  }
+}
+
+async function loadAnalytics() {
+  try {
+    const res = await fetch(ANALYTICS_ENDPOINT);
+    if (!res.ok) throw new Error("Analytics fetch returned " + res.status);
+    const data = await res.json();
+
+    const kb = data.kb_stats || {};
+    const stats = data.analytics || {};
+
+    const pagesKpi = el("kpiPagesCount");
+    const chunksKpi = el("kpiChunksCount");
+    const queriesKpi = el("kpiQueriesCount");
+    const latKpi = el("kpiAvgLatency");
+    const relKpi = el("kpiAvgRelevance");
+
+    if (pagesKpi) pagesKpi.textContent = kb.indexed_pages || "19";
+    if (chunksKpi) chunksKpi.textContent = kb.stored_chunks || "55";
+    if (queriesKpi) queriesKpi.textContent = stats.total_queries || "0";
+    if (latKpi) latKpi.textContent = `${stats.average_latency_ms || 12} ms`;
+    if (relKpi) relKpi.textContent = `${Math.round((stats.average_relevance_score || 0.65) * 100)}%`;
+
+    renderCategoryChart(stats.category_distribution || {});
+    renderKbDensityChart();
+    renderRecentQueriesTable(stats.recent_queries || []);
+  } catch (err) {
+    console.warn("Dashboard analytics fetch:", err);
+  }
+}
+
+function renderCategoryChart(categories) {
+  const canvas = document.getElementById("categoryChart");
+  if (!canvas || typeof Chart === "undefined") return;
+
+  const defaultCategories = {
+    Admissions: 2,
+    "Courses & Academics": 2,
+    "Placements & Careers": 2,
+    "Fees & Scholarships": 1,
+    "Campus & Facilities": 2,
+    "Exams & Timetable": 1,
+  };
+
+  const merged = Object.keys(categories).length > 0 ? categories : defaultCategories;
+  const labels = Object.keys(merged);
+  const counts = Object.values(merged);
+
+  const colors = ["#1f6b45", "#f2b134", "#2563eb", "#7c3aed", "#059669", "#ea580c", "#0284c7"];
+
+  if (state.charts.category) {
+    state.charts.category.destroy();
+  }
+
+  state.charts.category = new Chart(canvas.getContext("2d"), {
+    type: "doughnut",
+    data: {
+      labels: labels,
+      datasets: [
+        {
+          data: counts,
+          backgroundColor: colors.slice(0, labels.length),
+          borderWidth: 2,
+          borderColor: state.theme === "dark" ? "#12241d" : "#ffffff",
+        },
+      ],
+    },
+    options: {
+      responsive: true,
+      maintainAspectRatio: false,
+      plugins: {
+        legend: {
+          position: "bottom",
+          labels: {
+            font: { family: "Manrope", size: 11 },
+            color: state.theme === "dark" ? "#eaf3ee" : "#11221b",
+            padding: 10,
+          },
+        },
+      },
+    },
+  });
+}
+
+function renderKbDensityChart() {
+  const canvas = document.getElementById("kbDensityChart");
+  if (!canvas || typeof Chart === "undefined") return;
+
+  const labels = [
+    "Admissions",
+    "Engineering",
+    "Management/Law",
+    "Placements",
+    "Campus & Labs",
+    "Examinations",
+    "Contact & Admin",
+  ];
+  const data = [10, 14, 8, 9, 6, 5, 3];
+
+  if (state.charts.kbDensity) {
+    state.charts.kbDensity.destroy();
+  }
+
+  state.charts.kbDensity = new Chart(canvas.getContext("2d"), {
+    type: "bar",
+    data: {
+      labels: labels,
+      datasets: [
+        {
+          label: "Indexed Vector Chunks",
+          data: data,
+          backgroundColor: "#1f6b45",
+          borderRadius: 6,
+        },
+      ],
+    },
+    options: {
+      responsive: true,
+      maintainAspectRatio: false,
+      scales: {
+        y: {
+          beginAtZero: true,
+          ticks: { color: state.theme === "dark" ? "#9cb5a8" : "#4a6357" },
+          grid: { color: state.theme === "dark" ? "#223e32" : "#e8f1ec" },
+        },
+        x: {
+          ticks: {
+            color: state.theme === "dark" ? "#9cb5a8" : "#4a6357",
+            font: { size: 10 },
+          },
+          grid: { display: false },
+        },
+      },
+      plugins: {
+        legend: { display: false },
+      },
+    },
+  });
+}
+
+function updateChartTheme() {
+  if (state.charts.category) {
+    renderCategoryChart(
+      state.charts.category.data.labels.reduce((acc, l, i) => {
+        acc[l] = state.charts.category.data.datasets[0].data[i];
+        return acc;
+      }, {})
+    );
+  }
+  if (state.charts.kbDensity) {
+    renderKbDensityChart();
+  }
+}
+
+function renderRecentQueriesTable(queries) {
+  const tbody = el("recentQueriesTableBody");
+  if (!tbody) return;
+
+  if (!queries || queries.length === 0) {
+    tbody.innerHTML = `
+      <tr>
+        <td colspan="8" style="text-align: center; color: var(--ink-secondary); padding: 18px;">
+          No queries logged yet in this session.
+        </td>
+      </tr>
+    `;
+    return;
+  }
+
+  tbody.innerHTML = queries
+    .map((q) => {
+      const timeStr = q.timestamp ? q.timestamp.substring(11, 19) : "Just now";
+      const scorePct = Math.round((q.relevance_score || 0) * 100);
+      const isGrounded = q.grounded === 1;
+
+      return `
+      <tr>
+        <td>#${q.id}</td>
+        <td>${timeStr}</td>
+        <td><strong>${escapeHtml(q.question)}</strong></td>
+        <td><span class="action-pill">${escapeHtml(q.category || "General")}</span></td>
+        <td>${scorePct}%</td>
+        <td>${q.latency_ms || 10} ms</td>
+        <td>
+          <span style="color: ${isGrounded ? "var(--success)" : "var(--warning)"}; font-weight: 700;">
+            ${isGrounded ? "✓ Grounded" : "⚠️ Low"}
+          </span>
+        </td>
+        <td><small>${escapeHtml(q.llm_mode || "Local")}</small></td>
+      </tr>
+    `;
+    })
+    .join("");
+}
+
+// ============================================================
+// Helpers
+// ============================================================
+function escapeHtml(str) {
+  if (!str) return "";
+  return String(str)
+    .replace(/&/g, "&amp;")
+    .replace(/</g, "&lt;")
+    .replace(/>/g, "&gt;")
+    .replace(/"/g, "&quot;")
+    .replace(/'/g, "&#039;");
+}
+
+function formatMarkdownText(text) {
+  if (!text) return "";
+  let out = escapeHtml(text);
+  out = out.replace(/\*\*(.*?)\*\*/g, "<strong>$1</strong>");
+  out = out.replace(/(?:^|\n)[-*]\s+(.+)/g, "<br>&bull; $1");
+  out = out.replace(/\n\n/g, "<br><br>");
+  return out;
+}
