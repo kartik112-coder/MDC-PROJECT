@@ -1,63 +1,37 @@
-from fastapi import FastAPI
-from fastapi.responses import FileResponse
-from pydantic import BaseModel
-from typing import List
+from fastapi import FastAPI, Request
+from fastapi.responses import FileResponse, JSONResponse
 import os
 
-app = FastAPI(title="MIET Chatbot")
+app = FastAPI()
 
-# --- Models ---
-class Source(BaseModel):
-    text: str
-    source: str
+# Get current folder
+BASE_DIR = os.path.dirname(os.path.abspath(__file__))
 
-class ChatRequest(BaseModel):
-    question: str
-
-class ChatResponse(BaseModel):
-    answer: str
-    sources: List[Source]
-    mode: str
-
-SUGGESTED_QUESTIONS = [
-    "What programs does MIET Jammu offer?",
-    "What is the fee for the AI and ML certification program?",
-    "How do admissions work at MIET?",
-    "Tell me about placements at MIET.",
-    "What sports facilities are on campus?",
-    "Any recent notices for new students?",
-]
-
-# --- FRONTEND ROUTES - This fixes Not Found ---
 @app.get("/")
 def home():
-    if os.path.exists("index.html"):
-        return FileResponse("index.html")
-    return {"detail": "index.html not found in root"}
+    file_path = os.path.join(BASE_DIR, "index.html")
+    return FileResponse(file_path)
 
 @app.get("/style.css")
 def css():
-    return FileResponse("style.css")
+    file_path = os.path.join(BASE_DIR, "style.css")
+    if os.path.exists(file_path):
+        return FileResponse(file_path, media_type="text/css")
+    return JSONResponse({"error": "style.css not found in root"}, status_code=404)
 
 @app.get("/script.js")
 def js():
-    return FileResponse("script.js")
+    file_path = os.path.join(BASE_DIR, "script.js")
+    if os.path.exists(file_path):
+        return FileResponse(file_path, media_type="application/javascript")
+    return JSONResponse({"error": "script.js not found in root"}, status_code=404)
 
-# --- API ROUTES ---
 @app.get("/api/health")
-def health() -> dict:
-    """Simple status endpoint for the UI header badge"""
-    return {"status": "ok", "service": "MIET Chatbot"}
+def health():
+    return {"status": "ok", "files": os.listdir(BASE_DIR)}
 
-@app.get("/api/suggestions")
-def suggestions():
-    return {"suggestions": SUGGESTED_QUESTIONS}
-
-@app.post("/api/chat", response_model=ChatResponse)
-def chat(req: ChatRequest):
-    answer = f"Thanks for asking: '{req.question}'. Your backend is now connected! Integrate your RAG logic here."
-    return ChatResponse(
-        answer=answer,
-        sources=[Source(text="MIET official info", source="miet jammu")],
-        mode="live"
-    )
+@app.post("/api/chat")
+async def chat(request: Request):
+    data = await request.json()
+    msg = data.get("message", "")
+    return {"answer": f"MIET Assistant received: {msg}. Your beautiful UI is working!", "sources": ["mietjammu.in"]}
