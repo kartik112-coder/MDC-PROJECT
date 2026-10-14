@@ -1,6 +1,6 @@
 """
 app.py - Final Fixed Version for Render
-Team: Danish Sharma, Kartik Sharma, Dheeraj Thakur
+Team: Danish Sharma (2025A6R032), Kartik Sharma (2025A6R003), Dheeraj Thakur (2025A6R024)
 """
 
 import os
@@ -15,7 +15,10 @@ import rag
 
 load_dotenv()
 
-app = FastAPI(title="MIET Jammu Chatbot", version="1.0.0")
+app = FastAPI(
+    title="AI-Powered MIET Jammu Website Chatbot",
+    version="1.0.0",
+)
 
 app.add_middleware(
     CORSMiddleware,
@@ -44,10 +47,11 @@ SUGGESTED_QUESTIONS = [
     "What is the fee for the AI and ML certification program?",
     "How do admissions work at MIET?",
     "Tell me about placements at MIET.",
+    "What sports facilities are on campus?",
+    "Any recent notices for new students?",
 ]
 
-def get_file_path(filename):
-    # Try root first, then frontend folder
+def get_file_path(filename: str) -> str:
     root_path = os.path.join(BASE_DIR, filename)
     if os.path.exists(root_path):
         return root_path
@@ -56,12 +60,10 @@ def get_file_path(filename):
         return frontend_path
     return root_path
 
-# --- FIX 1: HEAD request for Render (fixes 405 error) ---
 @app.head("/")
 def home_head():
     return JSONResponse(content=None, status_code=200)
 
-# --- FIX 2: Serve Frontend correctly ---
 @app.get("/")
 def serve_index():
     return FileResponse(get_file_path("index.html"))
@@ -70,20 +72,65 @@ def serve_index():
 @app.get("/static/style.css")
 def serve_css():
     path = get_file_path("style.css")
-    if os.path.exists(path):
-        return FileResponse(path, media_type="text/css")
-    return JSONResponse({"error": "style.css not found"}, status_code=404)
+    return FileResponse(path, media_type="text/css")
 
 @app.get("/script.js")
 @app.get("/static/script.js")
 def serve_js():
     path = get_file_path("script.js")
-    if os.path.exists(path):
-        return FileResponse(path, media_type="application/javascript")
-    return JSONResponse({"error": "script.js not found"}, status_code=404)
+    return FileResponse(path, media_type="application/javascript")
 
 @app.get("/api/health")
 @app.get("/health")
 def health():
     try:
-        total_chunks = len(database.get_all_chunks
+        chunks = database.get_all_chunks()
+        total = len(chunks)
+        return {
+            "status": "ok",
+            "chunks": total,
+            "llm_configured": bool(rag.OPENAI_API_KEY),
+            "model": rag.OPENAI_MODEL if rag.OPENAI_API_KEY else None,
+        }
+    except Exception as exc:
+        return {
+            "status": "ok",
+            "chunks": len(retriever.chunks),
+            "detail": str(exc),
+        }
+
+@app.get("/api/suggestions")
+def suggestions():
+    return {"questions": SUGGESTED_QUESTIONS}
+
+@app.post("/api/chat", response_model=ChatResponse)
+async def chat(request: Request):
+    try:
+        data = await request.json()
+        q = data.get("question") or data.get("message") or ""
+        q = q.strip()
+        if not q:
+            raise HTTPException(status_code=400, detail="No question provided")
+        return rag.answer_question(q, retriever)
+    except HTTPException:
+        raise
+    except Exception as exc:
+        print(f"[app] chat error: {exc}")
+        raise HTTPException(status_code=500, detail=str(exc))
+
+@app.post("/api/refresh")
+def refresh():
+    try:
+        retriever.refresh()
+        return {"status": "refreshed", "chunks": len(retriever.chunks)}
+    except Exception as exc:
+        raise HTTPException(status_code=500, detail=f"Refresh failed: {exc}")
+
+if __name__ == "__main__":
+    import uvicorn
+    uvicorn.run(
+        "app:app",
+        host=os.getenv("APP_HOST", "127.0.0.1"),
+        port=int(os.getenv("APP_PORT", "8000")),
+        reload=True,
+    )
