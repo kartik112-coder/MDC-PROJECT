@@ -1,0 +1,234 @@
+/* ==========================================================
+   MIET AI Assistant — style.css
+   AI-Powered MIET Jammu Website Chatbot (BTech Semester Project)
+   ========================================================== */
+
+:root {
+  --navy: #0b1f3a;
+  --navy-2: #122c52;
+  --accent: #2f6fed;
+  --accent-2: #1f5ad1;
+  --gold: #f4b63f;
+  --bg: #eef2f8;
+  --card: #ffffff;
+  --text: #1c2740;
+  --muted: #64748b;
+  --bot-bubble: #f1f5fb;
+  --user-bubble: #2f6fed;
+  --radius: 16px;
+  --shadow: 0 10px 30px rgba(11, 31, 58, 0.12);
+}
+
+* { margin: 0; padding: 0; box-sizing: border-box; }
+
+body {
+  font-family: "Segoe UI", system-ui, -apple-system, Arial, sans-serif;
+  background: linear-gradient(160deg, var(--bg) 0%, #dfe7f3 100%);
+  color: var(--text);
+  min-height: 100vh;
+}
+
+.page {
+  max-width: 880px;
+  margin: 0 auto;
+  padding: 20px 16px 32px;
+  display: flex;
+  flex-direction: column;
+  min-height: 100vh;
+  gap: 16px;
+}
+
+/* ---------- Header ---------- */
+.header {
+  background: linear-gradient(120deg, var(--navy) 0%, var(--navy-2) 100%);
+  border-radius: var(--radius);
+  padding: 18px 22px;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  box-shadow: var(--shadow);
+  flex-wrap: wrap;
+}
+
+.brand { display: flex; align-items: center; gap: 14px; }
+
+.logo {
+  width: 48px; height: 48px;
+  border-radius: 12px;
+  background: linear-gradient(135deg, var(--gold), #e89b1c);
+  color: var(--navy);
+  font-size: 26px; font-weight: 800;
+  display: flex; align-items: center; justify-content: center;
+}
+
+.brand h1 { color: #fff; font-size: 1.25rem; letter-spacing: 0.3px; }
+.brand p { color: #9fb3d4; font-size: 0.8rem; }
+
+.header-right { display: flex; align-items: center; gap: 10px; }
+
+.badge {
+  font-size: 0.72rem; font-weight: 600;
+  padding: 5px 11px; border-radius: 999px;
+  letter-spacing: 0.3px;
+}
+.badge-wait { background: #334765; color: #c9d6ec; }
+.badge-ok { background: #123f2a; color: #5ee8a4; }
+.badge-off { background: #4b1d1d; color: #ff9f9f; }
+
+.site-link {
+  color: #cdd9ef; font-size: 0.8rem; text-decoration: none;
+  border: 1px solid #33496e; padding: 5px 11px; border-radius: 999px;
+  transition: background 0.2s;
+}
+.site-link:hover { background: #22395f; }
+
+/* ---------- Chat card ---------- */
+.chat-card {
+  background: var(--card);
+  border-radius: var(--radius);
+  box-shadow: var(--shadow);
+  display: flex;
+  flex-direction: column;
+  flex: 1;
+  overflow: hidden;
+}
+
+.chat-window {
+  flex: 1;
+  min-height: 380px;
+  max-height: 58vh;
+  overflow-y: auto;
+  padding: 22px;
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+  scroll-behavior: smooth;
+}
+
+/* ---------- Message bubbles ---------- */
+.msg { display: flex; gap: 10px; max-width: 85%; animation: pop 0.25s ease; }
+@keyframes pop { from { opacity: 0; transform: translateY(8px); } to { opacity: 1; transform: none; } }
+
+.msg.user { align-self: flex-end; flex-direction: row-reverse; }
+
+.avatar {
+  width: 34px; height: 34px; border-radius: 50%;
+  display: flex; align-items: center; justify-content: center;
+  font-size: 16px; flex-shrink: 0;
+}
+.msg.bot .avatar { background: var(--navy); color: var(--gold); }
+.msg.user .avatar { background: var(--accent); color: #fff; }
+
+.bubble {
+  padding: 12px 15px;
+  border-radius: 14px;
+  font-size: 0.92rem;
+  line-height: 1.55;
+  word-break: break-word;
+}
+.msg.bot .bubble { background: var(--bot-bubble); border-top-left-radius: 4px; }
+.msg.user .bubble { background: var(--user-bubble); color: #fff; border-top-right-radius: 4px; }
+
+.bubble strong { color: var(--navy); }
+.msg.user .bubble strong { color: #fff; }
+
+/* Source links under a bot answer */
+.sources { margin-top: 10px; display: flex; flex-wrap: wrap; gap: 6px; }
+.sources a {
+  display: inline-block;
+  font-size: 0.74rem; font-weight: 600;
+  color: var(--accent-2);
+  background: #e4edff;
+  border: 1px solid #c8d9ff;
+  padding: 4px 10px;
+  border-radius: 999px;
+  text-decoration: none;
+  transition: background 0.2s;
+}
+.sources a:hover { background: #d4e2ff; }
+
+.mode-tag { margin-top: 8px; font-size: 0.68rem; color: var(--muted); }
+
+/* ---------- Typing / loading indicator ---------- */
+.typing { display: inline-flex; gap: 5px; padding: 6px 2px; }
+.typing span {
+  width: 8px; height: 8px; border-radius: 50%;
+  background: #93a6c7; animation: blink 1.2s infinite;
+}
+.typing span:nth-child(2) { animation-delay: 0.2s; }
+.typing span:nth-child(3) { animation-delay: 0.4s; }
+@keyframes blink { 0%, 80%, 100% { opacity: 0.25; } 40% { opacity: 1; } }
+
+/* ---------- Suggestions ---------- */
+.suggestions {
+  display: flex; flex-wrap: wrap; gap: 8px;
+  padding: 0 22px 12px;
+}
+.chip {
+  font-size: 0.78rem;
+  color: var(--navy);
+  background: #eef3fb;
+  border: 1px solid #d7e2f3;
+  padding: 7px 13px;
+  border-radius: 999px;
+  cursor: pointer;
+  transition: all 0.15s;
+}
+.chip:hover { background: var(--accent); border-color: var(--accent); color: #fff; }
+
+/* ---------- Input row ---------- */
+.input-row {
+  display: flex; gap: 10px;
+  padding: 14px 22px 18px;
+  border-top: 1px solid #e7edf6;
+  background: #fbfcfe;
+}
+
+#question-input {
+  flex: 1;
+  border: 1.5px solid #d4ddeb;
+  border-radius: 12px;
+  padding: 12px 16px;
+  font-size: 0.95rem;
+  outline: none;
+  transition: border 0.2s, box-shadow 0.2s;
+}
+#question-input:focus {
+  border-color: var(--accent);
+  box-shadow: 0 0 0 3px rgba(47, 111, 237, 0.15);
+}
+
+.btn {
+  border: none; border-radius: 12px; cursor: pointer;
+  font-size: 0.95rem; font-weight: 600;
+  transition: transform 0.1s, background 0.2s;
+}
+.btn:active { transform: scale(0.96); }
+
+.btn-send {
+  background: linear-gradient(120deg, var(--accent), var(--accent-2));
+  color: #fff;
+  padding: 0 20px;
+  display: flex; align-items: center; gap: 7px;
+}
+.btn-send:disabled { opacity: 0.55; cursor: not-allowed; }
+.btn-clear {
+  background: #eef1f7; color: var(--muted);
+  padding: 0 14px; font-size: 1.05rem;
+}
+.btn-clear:hover { background: #ffe4e4; color: #c0392b; }
+
+/* ---------- Footer ---------- */
+.footer { text-align: center; font-size: 0.75rem; color: var(--muted); line-height: 1.7; }
+.footer a { color: var(--accent-2); }
+.disclaimer { opacity: 0.85; }
+
+/* ---------- Responsive ---------- */
+@media (max-width: 560px) {
+  .msg { max-width: 95%; }
+  .send-label { display: none; }
+  .header { padding: 14px 16px; }
+  .chat-window { padding: 16px; }
+  .suggestions, .input-row { padding-left: 16px; padding-right: 16px; }
+}

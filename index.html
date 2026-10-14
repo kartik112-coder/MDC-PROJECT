@@ -1,0 +1,68 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>MIET AI Assistant — MIET Jammu Chatbot</title>
+  <meta name="description" content="AI-Powered MIET Jammu Website Chatbot — BTech Semester Project" />
+  <link rel="stylesheet" href="/static/style.css" />
+</head>
+<body>
+  <div class="page">
+
+    <!-- ============ Header ============ -->
+    <header class="header">
+      <div class="brand">
+        <div class="logo">M</div>
+        <div>
+          <h1>MIET AI Assistant</h1>
+          <p>Model Institute of Engineering &amp; Technology, Jammu</p>
+        </div>
+      </div>
+      <div class="header-right">
+        <span id="status-badge" class="badge badge-wait">Checking server…</span>
+        <a href="https://mietjmu.in/" target="_blank" rel="noopener" class="site-link">mietjmu.in ↗</a>
+      </div>
+    </header>
+
+    <!-- ============ Chat area ============ -->
+    <main class="chat-card">
+      <div id="chat-window" class="chat-window" aria-live="polite">
+        <!-- messages are injected here by script.js -->
+      </div>
+
+      <!-- Suggested questions -->
+      <div id="suggestions" class="suggestions"></div>
+
+      <!-- Input row -->
+      <form id="chat-form" class="input-row" autocomplete="off">
+        <input
+          id="question-input"
+          type="text"
+          maxlength="500"
+          placeholder="Ask about admissions, fees, placements, notices…"
+          aria-label="Type your question"
+        />
+        <button type="submit" id="send-btn" class="btn btn-send" title="Send">
+          <span class="send-label">Send</span>
+          <span class="send-arrow">➤</span>
+        </button>
+        <button type="button" id="clear-btn" class="btn btn-clear" title="Clear chat">🗑</button>
+      </form>
+    </main>
+
+    <footer class="footer">
+      <p>
+        BTech Semester Project — Danish Sharma (2025A6R032) · Kartik Sharma (2025A6R003) ·
+        Dheeraj Thakur (2025A6R024)
+      </p>
+      <p class="disclaimer">
+        Answers are generated from content collected from the official MIET Jammu website.
+        Always verify critical details (fees, dates) on <a href="https://mietjmu.in/" target="_blank" rel="noopener">mietjmu.in</a>.
+      </p>
+    </footer>
+  </div>
+
+  <script src="/static/script.js"></script>
+</body>
+</html>
