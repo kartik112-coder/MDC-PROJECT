@@ -1,37 +1,26 @@
-from fastapi import FastAPI, Request
-from fastapi.responses import FileResponse, JSONResponse
+from fastapi import FastAPI
+from fastapi.responses import FileResponse
 import os
 
 app = FastAPI()
-
-# Get current folder
-BASE_DIR = os.path.dirname(os.path.abspath(__file__))
+BASE = os.path.dirname(os.path.abspath(__file__))
 
 @app.get("/")
 def home():
-    file_path = os.path.join(BASE_DIR, "index.html")
-    return FileResponse(file_path)
+    return FileResponse(os.path.join(BASE, "index.html"))
 
 @app.get("/style.css")
 def css():
-    file_path = os.path.join(BASE_DIR, "style.css")
-    if os.path.exists(file_path):
-        return FileResponse(file_path, media_type="text/css")
-    return JSONResponse({"error": "style.css not found in root"}, status_code=404)
+    return FileResponse(os.path.join(BASE, "style.css"), media_type="text/css")
 
 @app.get("/script.js")
 def js():
-    file_path = os.path.join(BASE_DIR, "script.js")
-    if os.path.exists(file_path):
-        return FileResponse(file_path, media_type="application/javascript")
-    return JSONResponse({"error": "script.js not found in root"}, status_code=404)
+    return FileResponse(os.path.join(BASE, "script.js"), media_type="application/javascript")
 
-@app.get("/api/health")
+@app.get("/health")
 def health():
-    return {"status": "ok", "files": os.listdir(BASE_DIR)}
+    return {"status": "live", "url": "https://mdc-project.onrender.com"}
 
 @app.post("/api/chat")
-async def chat(request: Request):
-    data = await request.json()
-    msg = data.get("message", "")
-    return {"answer": f"MIET Assistant received: {msg}. Your beautiful UI is working!", "sources": ["mietjammu.in"]}
+async def chat(req: dict):
+    return {"answer": "MIET Jammu AI Assistant is live!", "sources": ["mietjammu.in"]}
