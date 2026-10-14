@@ -9,6 +9,16 @@ BASE = os.path.dirname(os.path.abspath(__file__))
 def home():
     return FileResponse(os.path.join(BASE, "index.html"))
 
+# Your index.html is asking for /static/ path
+@app.get("/static/style.css")
+def css_static():
+    return FileResponse(os.path.join(BASE, "style.css"), media_type="text/css")
+
+@app.get("/static/script.js")
+def js_static():
+    return FileResponse(os.path.join(BASE, "script.js"), media_type="application/javascript")
+
+# Also keep root path for backup
 @app.get("/style.css")
 def css():
     return FileResponse(os.path.join(BASE, "style.css"), media_type="text/css")
@@ -17,10 +27,6 @@ def css():
 def js():
     return FileResponse(os.path.join(BASE, "script.js"), media_type="application/javascript")
 
-@app.get("/health")
-def health():
-    return {"status": "live", "url": "https://mdc-project.onrender.com"}
-
 @app.post("/api/chat")
 async def chat(req: dict):
-    return {"answer": "MIET Jammu AI Assistant is live!", "sources": ["mietjammu.in"]}
+    return {"answer": "MIET AI Assistant is Live! Ask about MIET Jammu.", "sources": []}
