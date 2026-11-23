@@ -1,7 +1,7 @@
 
 """
 SQLite knowledge base for the MIET Jammu chatbot.
-Stores information collected from the official MIET website.
+Stores verified information collected from the official MIET website.
 """
 
 import os
@@ -50,25 +50,18 @@ def init_db():
             )
         """)
 
-        # Remove old unverified seed information.
         conn.execute(
             "DELETE FROM chunks WHERE origin = 'seed'"
         )
 
 
 def seed_if_empty():
-    """
-    Compatibility function for the existing RAG code.
-
-    Old seed information is no longer automatically inserted.
-    Only scraped website information is used.
-    """
     init_db()
 
     with get_connection() as conn:
         count = conn.execute(
-            "SELECT COUNT(*) AS c FROM chunks"
-        ).fetchone()["c"]
+            "SELECT COUNT(*) FROM chunks WHERE origin = 'scraped'"
+        ).fetchone()[0]
 
     return count
 
@@ -89,21 +82,48 @@ def get_all_chunks():
 
 def replace_scraped_chunks(chunks):
     """
-    Replace old scraped information with newly collected information.
-
-    If scraping returns no results, keep the previous data instead
-    of accidentally deleting the entire knowledge base.
+    Replace existing scraped information only when valid new
+    information is available. Existing data is preserved if
+    scraping produces no valid records.
     """
 
     init_db()
 
-    if not chunks:
-        print("No new scraped data received. Existing data preserved.")
+    valid_chunks = []
 
-        with get_connection() as conn:
-            return conn.execute(
-                "SELECT COUNT(*) FROM chunks WHERE origin = 'scraped'"
-            ).fetchone()[0]
+    for chunk in chunks:
+        title = str(
+            chunk.get("title", "MIET Website Information")
+        ).strip()
+
+        content = str(
+            chunk.get("content", "")
+        ).strip()
+
+        url = str(
+            chunk.get("url", "")
+        ).strip()
+
+        category = str(
+            chunk.get("category", "general")
+        ).strip()
+
+        if not content or not url:
+            continue
+
+        if not url.startswith("https://mietjmu.in/"):
+            continue
+
+        valid_chunks.append({
+            "title": title,
+            "content": content,
+            "url": url,
+            "category": category
+        })
+
+    if not valid_chunks:
+        print("No valid new information. Existing data preserved.")
+        return len(get_all_chunks())
 
     now = datetime.now(timezone.utc).isoformat()
 
@@ -113,25 +133,16 @@ def replace_scraped_chunks(chunks):
             "DELETE FROM chunks WHERE origin = 'scraped'"
         )
 
-        for chunk in chunks:
-
-            title = str(chunk.get("title", "MIET Website Information"))
-            content = str(chunk.get("content", "")).strip()
-            url = str(chunk.get("url", "")).strip()
-            category = str(chunk.get("category", "general"))
-
-            if not content or not url:
-                continue
-
+        for chunk in valid_chunks:
             conn.execute("""
                 INSERT INTO chunks
                 (title, content, url, category, origin, scraped_at)
                 VALUES (?, ?, ?, ?, 'scraped', ?)
             """, (
-                title,
-                content,
-                url,
-                category,
+                chunk["title"],
+                chunk["content"],
+                chunk["url"],
+                chunk["category"],
                 now
             ))
 
@@ -139,19 +150,16 @@ def replace_scraped_chunks(chunks):
             "SELECT COUNT(*) FROM chunks WHERE origin = 'scraped'"
         ).fetchone()[0]
 
+    print("Knowledge base updated:", total, "chunks")
+
     return total
 
 
 if __name__ == "__main__":
-
     init_db()
 
-    total = len(get_all_chunks())
+    chunks = get_all_chunks()
 
-    print("MIET database initialized successfully.")
-    print(f"Database location: {DB_PATH}")
-    print(f"Scraped information records: {total}")
-
-    if total == 0:
-        print("No scraped information found.")
-        print("Run python scrape_miet.py to collect website information.")
+    print("MIET database initialized.")
+    print("Database location:", DB_PATH)
+    print("Stored chunks:", len(chunks))
