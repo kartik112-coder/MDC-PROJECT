@@ -1,20 +1,7 @@
+
 """
-scrape_miet.py - Collect content from the official MIET Jammu website.
-======================================================================
-Project : AI-Powered MIET Jammu Website Chatbot (BTech Semester Project)
-
-Uses Requests + BeautifulSoup to:
-  1. Check robots.txt and respect access restrictions.
-  2. Download a list of official pages from https://mietjmu.in/.
-  3. Clean the visible text (remove scripts, styles, menus).
-  4. Split the text into overlapping chunks (good for RAG retrieval).
-  5. Store the chunks with their SOURCE URL in the SQLite database.
-
-Run on Windows:
-    python scrape_miet.py
-
-Pages that are missing or blocked are skipped politely - the chatbot
-keeps working with whatever verified content is available.
+MIET Jammu Website Scraper
+Collects, cleans, chunks and stores official MIET website information.
 """
 
 import time
@@ -27,9 +14,8 @@ from bs4 import BeautifulSoup
 import database
 
 BASE_URL = "https://mietjmu.in/"
+USER_AGENT = "MIET-Student-Project-Chatbot/1.0"
 
-# Candidate official pages to collect. Unreachable pages are skipped
-# automatically, so this list is safe to extend.
 PAGES = [
     ("https://mietjmu.in/", "about"),
     ("https://mietjmu.in/about-us/", "about"),
@@ -43,103 +29,168 @@ PAGES = [
 ]
 
 HEADERS = {
-    "User-Agent": (
-        "MIET-Student-Project-Chatbot/1.0 (BTech semester project; "
-        "educational use; contact via college)"
-    )
+    "User-Agent": USER_AGENT
 }
 
-CHUNK_SIZE = 900      # characters per chunk
-CHUNK_OVERLAP = 150   # characters shared between neighbouring chunks
-REQUEST_DELAY = 2.0   # polite delay between requests (seconds)
+CHUNK_SIZE = 900
+CHUNK_OVERLAP = 150
+REQUEST_DELAY = 2
 
 
-def allowed_by_robots(url: str) -> bool:
-    """Respect website access restrictions declared in robots.txt."""
+def get_robots_parser():
+    parser = urllib.robotparser.RobotFileParser()
+    parser.set_url(urljoin(BASE_URL, "robots.txt"))
+
     try:
-        rp = urllib.robotparser.RobotFileParser()
-        rp.set_url(urljoin(BASE_URL, "/robots.txt"))
-        rp.read()
-        return rp.can_fetch(HEADERS["User-Agent"], url)
+        parser.read()
+        return parser
     except Exception:
-        # If robots.txt cannot be read, stay conservative but allow the
-        # public homepage which we know is intended for visitors.
-        return url.rstrip("/") == BASE_URL.rstrip("/")
+        print("Warning: Could not read robots.txt.")
+        return None
 
 
-def fetch_page(url: str) -> str | None:
-    """Download one page; return HTML or None on any failure."""
+def allowed_by_robots(parser, url):
+    if parser is None:
+        return False
+
+    return parser.can_fetch(USER_AGENT, url)
+
+
+def fetch_page(session, url):
     try:
-        resp = requests.get(url, headers=HEADERS, timeout=15)
-        if resp.status_code == 200 and "text/html" in resp.headers.get("Content-Type", ""):
-            return resp.text
-        print(f"  [skip] {url} -> HTTP {resp.status_code}")
-    except requests.RequestException as exc:
-        print(f"  [skip] {url} -> {exc.__class__.__name__}")
-    return None
+        response = session.get(
+            url,
+            headers=HEADERS,
+            timeout=20
+        )
+
+        response.raise_for_status()
+
+        content_type = response.headers.get(
+            "Content-Type", ""
+        ).lower()
+
+        if "text/html" not in content_type:
+            print("  Skipped: Not an HTML page.")
+            return None
+
+        return response.text
+
+    except requests.RequestException as error:
+        print(f"  Skipped: {error.__class__.__name__}")
+        return None
 
 
-def clean_text(html: str) -> tuple[str, str]:
-    """Return (page_title, cleaned_visible_text) from raw HTML."""
+def clean_text(html):
     soup = BeautifulSoup(html, "html.parser")
-    title = (soup.title.string or "MIET Jammu").strip() if soup.title else "MIET Jammu"
 
-    # Remove non-content elements.
-    for tag in soup(["script", "style", "noscript", "header", "footer", "nav", "form"]):
+    if soup.title and soup.title.string:
+        title = soup.title.string.strip()
+    else:
+        title = "MIET Jammu"
+
+    for tag in soup([
+        "script",
+        "style",
+        "noscript",
+        "header",
+        "footer",
+        "nav",
+        "form",
+        "svg"
+    ]):
         tag.decompose()
 
-    text = soup.get_text(separator=" ")
-    # Normalise whitespace.
-    words = text.split()
-    return title, " ".join(words)
+    main = soup.find("main") or soup.find("article") or soup.body
+
+    if main:
+        text = main.get_text(separator=" ", strip=True)
+    else:
+        text = soup.get_text(separator=" ", strip=True)
+
+    text = " ".join(text.split())
+
+    return title, text
 
 
-def split_into_chunks(text: str) -> list[str]:
-    """Split long text into overlapping chunks for better retrieval."""
+def split_into_chunks(text):
     chunks = []
+
     start = 0
+
     while start < len(text):
         end = start + CHUNK_SIZE
+
         chunk = text[start:end].strip()
-        if len(chunk) > 120:  # ignore tiny fragments
+
+        if len(chunk) >= 120:
             chunks.append(chunk)
+
+        if end >= len(text):
+            break
+
         start = end - CHUNK_OVERLAP
+
     return chunks
 
 
-def scrape() -> int:
-    """Scrape all allowed pages and store chunks in SQLite."""
-    collected: list[dict] = []
+def scrape():
+    collected = []
 
-    for url, category in PAGES:
-        print(f"Fetching {url}")
-        if urlparse(url).netloc != urlparse(BASE_URL).netloc:
-            print("  [skip] outside official domain")
-            continue
-        if not allowed_by_robots(url):
-            print("  [skip] disallowed by robots.txt")
-            continue
+    robots_parser = get_robots_parser()
 
-        html = fetch_page(url)
-        if not html:
-            continue
+    with requests.Session() as session:
 
-        title, text = clean_text(html)
-        for i, chunk in enumerate(split_into_chunks(text), start=1):
-            collected.append(
-                {
-                    "title": f"{title} (part {i})",
+        for url, category in PAGES:
+
+            print(f"\nFetching: {url}")
+
+            if urlparse(url).netloc != urlparse(BASE_URL).netloc:
+                print("  Skipped: Outside official domain.")
+                continue
+
+            if not allowed_by_robots(robots_parser, url):
+                print("  Skipped: Robots.txt restriction.")
+                continue
+
+            html = fetch_page(session, url)
+
+            if not html:
+                continue
+
+            title, text = clean_text(html)
+
+            if len(text) < 120:
+                print("  Skipped: Insufficient page content.")
+                continue
+
+            chunks = split_into_chunks(text)
+
+            for number, chunk in enumerate(chunks, start=1):
+                collected.append({
+                    "title": f"{title} (Part {number})",
                     "content": chunk,
                     "url": url,
-                    "category": category,
-                }
-            )
-        time.sleep(REQUEST_DELAY)
+                    "category": category
+                })
+
+            print(f"  Collected {len(chunks)} chunks.")
+
+            time.sleep(REQUEST_DELAY)
+
+    if not collected:
+        print("\nNo valid information collected.")
+        print("Existing database information will be preserved.")
+        return 0
 
     stored = database.replace_scraped_chunks(collected)
-    database.seed_if_empty()
+
     total = len(database.get_all_chunks())
-    print(f"\nStored {stored} scraped chunks. Knowledge base now has {total} chunks.")
+
+    print("\nScraping completed.")
+    print(f"New chunks stored: {stored}")
+    print(f"Total knowledge-base chunks: {total}")
+
     return stored
 
 
