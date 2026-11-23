@@ -1,12 +1,7 @@
 
 """
-app.py - MIET Jammu AI Chatbot Backend
-Supports OpenAI AI mode and local retrieval mode.
-
-Team:
-Danish Sharma (2025A6R032)
-Kartik Sharma (2025A6R003)
-Dheeraj Thakur (2025A6R024)
+AI-Powered MIET Jammu Website Chatbot
+FastAPI backend with automatic MIET knowledge loading.
 """
 
 import os
@@ -20,12 +15,11 @@ from pydantic import BaseModel, Field, field_validator
 import database
 import rag
 
-
 load_dotenv()
 
 app = FastAPI(
     title="AI-Powered MIET Jammu Website Chatbot",
-    version="1.2.0",
+    version="1.3.0",
     description="An information chatbot focused on MIET Jammu."
 )
 
@@ -33,8 +27,6 @@ BASE_DIR = os.path.dirname(os.path.abspath(__file__))
 
 retriever = rag.Retriever()
 
-
-# CORS configuration
 allowed_origins = [
     origin.strip()
     for origin in os.getenv("CORS_ORIGINS", "").split(",")
@@ -50,13 +42,8 @@ if allowed_origins:
     )
 
 
-# Request model
 class ChatRequest(BaseModel):
-    question: str = Field(
-        ...,
-        min_length=1,
-        max_length=500
-    )
+    question: str = Field(..., min_length=1, max_length=500)
 
     @field_validator("question")
     @classmethod
@@ -69,7 +56,6 @@ class ChatRequest(BaseModel):
         return value
 
 
-# Response models
 class Source(BaseModel):
     title: str
     url: str
@@ -81,20 +67,17 @@ class ChatResponse(BaseModel):
     mode: str
 
 
-# Suggested questions
 SUGGESTED_QUESTIONS = [
     "What programs does MIET Jammu offer?",
-    "What is the fee for the AI and ML certification program?",
     "How do admissions work at MIET?",
     "Tell me about placements at MIET.",
-    "What sports facilities are on campus?",
-    "Any recent notices for new students?",
+    "What departments are available at MIET?",
+    "What facilities are available on campus?",
+    "Where can I find MIET notices?"
 ]
 
 
-# Find frontend files
-def get_file_path(filename: str) -> str:
-
+def get_file_path(filename: str):
     root_path = os.path.join(BASE_DIR, filename)
 
     if os.path.isfile(root_path):
@@ -115,7 +98,46 @@ def get_file_path(filename: str) -> str:
     )
 
 
-# Homepage
+@app.on_event("startup")
+def load_miet_knowledge():
+    """
+    Load existing knowledge or scrape the official MIET website
+    when the database is empty.
+    """
+
+    try:
+        database.init_db()
+
+        current_chunks = database.get_all_chunks()
+
+        if not current_chunks:
+            print("[startup] MIET knowledge base is empty.")
+            print("[startup] Starting MIET website scraper...")
+
+            import scrape_miet
+
+            scrape_miet.scrape()
+
+        retriever.refresh()
+
+        total = len(retriever.chunks)
+
+        print(
+            f"[startup] Knowledge base loaded: {total} chunks"
+        )
+
+        if total == 0:
+            print(
+                "[startup] WARNING: No MIET information was collected."
+            )
+
+    except Exception as exc:
+        print(
+            "[startup] Knowledge loading failed:",
+            exc.__class__.__name__
+        )
+
+
 @app.head("/")
 def home_head():
     return FileResponse(get_file_path("index.html"))
@@ -126,7 +148,6 @@ def serve_index():
     return FileResponse(get_file_path("index.html"))
 
 
-# CSS
 @app.get("/style.css")
 @app.get("/static/style.css")
 def serve_css():
@@ -136,7 +157,6 @@ def serve_css():
     )
 
 
-# JavaScript
 @app.get("/script.js")
 @app.get("/static/script.js")
 def serve_js():
@@ -146,11 +166,9 @@ def serve_js():
     )
 
 
-# Health check
 @app.get("/api/health")
 @app.get("/health")
 def health():
-
     try:
         chunks = database.get_all_chunks()
         total = len(chunks)
@@ -165,14 +183,13 @@ def health():
                 rag.OPENAI_MODEL if configured else None
             ),
             "mode": "llm" if configured else "local",
-            "ready": total > 0,
+            "ready": total > 0
         }
 
     except Exception as exc:
-
         print(
-            f"[app] Health check error: "
-            f"{exc.__class__.__name__}"
+            "[health] Database error:",
+            exc.__class__.__name__
         )
 
         raise HTTPException(
@@ -181,7 +198,6 @@ def health():
         )
 
 
-# Suggested questions API
 @app.get("/api/suggestions")
 def suggestions():
     return {
@@ -189,15 +205,12 @@ def suggestions():
     }
 
 
-# Chat API
 @app.post(
     "/api/chat",
     response_model=ChatResponse
 )
 def chat(payload: ChatRequest):
-
     try:
-
         result = rag.answer_question(
             payload.question,
             retriever
@@ -206,39 +219,36 @@ def chat(payload: ChatRequest):
         return result
 
     except Exception as exc:
-
         print(
-            f"[app] Chat error: "
-            f"{exc.__class__.__name__}"
+            "[chat] Error:",
+            exc.__class__.__name__
         )
 
         raise HTTPException(
             status_code=503,
-            detail=(
-                "The chatbot service is temporarily "
-                "unavailable. Please try again later."
-            )
+            detail="The chatbot service is temporarily unavailable."
         )
 
 
-# Refresh knowledge base
 @app.post("/api/refresh")
 def refresh():
-
     try:
+        import scrape_miet
+
+        stored = scrape_miet.scrape()
 
         retriever.refresh()
 
         return {
             "status": "refreshed",
-            "chunks": len(retriever.chunks)
+            "new_chunks": stored,
+            "total_chunks": len(retriever.chunks)
         }
 
     except Exception as exc:
-
         print(
-            f"[app] Refresh error: "
-            f"{exc.__class__.__name__}"
+            "[refresh] Error:",
+            exc.__class__.__name__
         )
 
         raise HTTPException(
@@ -247,9 +257,7 @@ def refresh():
         )
 
 
-# Run application
 if __name__ == "__main__":
-
     import uvicorn
 
     uvicorn.run(
