@@ -1,10 +1,10 @@
-
 """
 AI-Powered MIET Jammu Website Chatbot
 FastAPI backend with automatic MIET knowledge loading.
 """
 
 import os
+from typing import Literal
 
 from dotenv import load_dotenv
 from fastapi import FastAPI, HTTPException
@@ -20,7 +20,7 @@ load_dotenv()
 app = FastAPI(
     title="AI-Powered MIET Jammu Website Chatbot",
     version="1.3.0",
-    description="An information chatbot focused on MIET Jammu."
+    description="A general-purpose AI assistant for MIET Jammu students."
 )
 
 BASE_DIR = os.path.dirname(os.path.abspath(__file__))
@@ -42,8 +42,14 @@ if allowed_origins:
     )
 
 
+class HistoryMessage(BaseModel):
+    role: Literal["user", "assistant"]
+    content: str = Field(..., max_length=4000)
+
+
 class ChatRequest(BaseModel):
-    question: str = Field(..., min_length=1, max_length=500)
+    question: str = Field(..., min_length=1, max_length=4000)
+    history: list[HistoryMessage] = Field(default_factory=list, max_length=20)
 
     @field_validator("question")
     @classmethod
@@ -69,11 +75,11 @@ class ChatResponse(BaseModel):
 
 SUGGESTED_QUESTIONS = [
     "What programs does MIET Jammu offer?",
-    "How do admissions work at MIET?",
+    "Explain recursion with a simple example.",
+    "How should a 2nd-year B.Tech student build a strong resume?",
     "Tell me about placements at MIET.",
-    "What departments are available at MIET?",
-    "What facilities are available on campus?",
-    "Where can I find MIET notices?"
+    "What is the difference between AI, ML and Deep Learning?",
+    "Help me plan a study schedule for exams."
 ]
 
 
@@ -213,7 +219,8 @@ def chat(payload: ChatRequest):
     try:
         result = rag.answer_question(
             payload.question,
-            retriever
+            retriever,
+            [m.model_dump() for m in payload.history]
         )
 
         return result
