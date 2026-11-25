@@ -232,3 +232,21 @@ body {
   .chat-window { padding: 16px; }
   .suggestions, .input-row { padding-left: 16px; padding-right: 16px; }
 }
+
+/* code in bot answers */
+.bubble pre {
+  background: #0f172a;
+  color: #e2e8f0;
+  padding: 10px 12px;
+  border-radius: 8px;
+  overflow-x: auto;
+  margin: 8px 0;
+  font-size: 0.85rem;
+}
+.bubble code {
+  font-family: Consolas, "Courier New", monospace;
+  background: rgba(100, 116, 139, 0.18);
+  padding: 1px 5px;
+  border-radius: 4px;
+}
+.bubble pre code { background: none; padding: 0; }
