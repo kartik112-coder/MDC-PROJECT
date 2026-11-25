@@ -12,10 +12,13 @@ const suggestionsBox = document.getElementById("suggestions");
 const statusBadge = document.getElementById("status-badge");
 
 const WELCOME =
-  "👋 Hi! I'm the <strong>MIET AI Assistant</strong>. Ask me about admissions, " +
-  "programs, certification fees, placements, notices, events or campus " +
-  "facilities at MIET Jammu. I answer only from official website content and " +
-  "always show my sources.";
+  "👋 Hi! I'm the <strong>MIET AI Assistant</strong>. Ask me anything: " +
+  "coding, studies, career advice, general knowledge, or questions about " +
+  "MIET Jammu (admissions, placements, facilities). For MIET facts I use " +
+  "official website content and show my sources.";
+
+/* conversation memory sent with every request so follow-ups make sense */
+let history = [];
 
 /* ---------- helpers ---------- */
 
@@ -28,10 +31,20 @@ function escapeHtml(str) {
 /* tiny markdown: **bold** and _italic_ only (bot text is trusted-ish but
    we escape first, then re-apply the two patterns) */
 function renderText(str) {
-  return escapeHtml(str)
-    .replace(/\*\*(.+?)\*\*/g, "<strong>$1</strong>")
-    .replace(/_(.+?)_/g, "<em>$1</em>")
-    .replace(/\n/g, "<br>");
+  const parts = String(str).split(/```[a-zA-Z0-9]*\n?/);
+  return parts
+    .map((part, i) => {
+      const safe = escapeHtml(part);
+      if (i % 2 === 1) {
+        return "<pre><code>" + safe.replace(/\n$/, "") + "</code></pre>";
+      }
+      return safe
+        .replace(/`([^`\n]+)`/g, "<code>$1</code>")
+        .replace(/\*\*(.+?)\*\*/g, "<strong>$1</strong>")
+        .replace(/^- (.+)$/gm, "&bull; $1")
+        .replace(/\n/g, "<br>");
+    })
+    .join("");
 }
 
 function addMessage(role, html, sources, mode) {
@@ -64,10 +77,9 @@ function addMessage(role, html, sources, mode) {
     const tag = document.createElement("div");
     tag.className = "mode-tag";
     const labels = {
-      llm: "Answered by LLM (RAG-grounded)",
-      extractive: "Extracted from official sources (no LLM key configured)",
-      extractive_fallback: "Extracted from sources (LLM temporarily unavailable)",
-      not_found: "Honest miss — no reliable source found",
+      llm: "AI answer",
+      local: "Limited mode: no AI key configured (website search only)",
+      local_fallback: "Limited mode: AI service unavailable right now",
     };
     if (labels[mode]) {
       tag.textContent = labels[mode];
@@ -106,7 +118,7 @@ async function checkHealth() {
       statusBadge.className = "badge badge-ok";
       statusBadge.textContent = data.llm_configured
         ? `● Online · ${data.model} · ${data.chunks} chunks`
-        : `● Online · retrieval mode · ${data.chunks} chunks`;
+        : `● Limited mode · add an API key to enable full AI`;
       return;
     }
     throw new Error("bad status");
@@ -147,7 +159,7 @@ async function askQuestion(question) {
     const res = await fetch("/api/chat", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ question }),
+      body: JSON.stringify({ question, history: history.slice(-10) }),
     });
     removeTyping();
 
@@ -165,6 +177,9 @@ async function askQuestion(question) {
 
     const data = await res.json();
     addMessage("bot", renderText(data.answer), data.sources, data.mode);
+    history.push({ role: "user", content: question });
+    history.push({ role: "assistant", content: data.answer });
+    history = history.slice(-20);
   } catch {
     removeTyping();
     addMessage(
@@ -188,6 +203,7 @@ chatForm.addEventListener("submit", (e) => {
 
 clearBtn.addEventListener("click", () => {
   chatWindow.innerHTML = "";
+  history = [];
   addMessage("bot", WELCOME);
   input.focus();
 });
