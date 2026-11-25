@@ -25,7 +25,7 @@ answers through one conversational interface.
 | Core language | **Python 3.11+** |
 | Backend | **FastAPI** (+ Uvicorn) |
 | Frontend | **HTML, CSS, vanilla JavaScript** |
-| AI | **OpenAI API** (configurable model) with **RAG**; honest extractive mode when no key |
+| AI | **LLM (OpenAI or any OpenAI-compatible API)** as a general assistant, with **RAG** over MIET data as extra context |
 | Database | **SQLite** (knowledge chunks + source URLs); ChromaDB documented as optional upgrade |
 | Data collection | **Requests + BeautifulSoup** (robots.txt respected) |
 
@@ -87,7 +87,17 @@ honest "not found" handling, API health/chat/validation endpoints.
 > suite pass before your demonstration. Everything is standard-library +
 > pinned packages, with no exotic setup.
 
-## 5. How It Works (RAG pipeline)
+## 5. How It Works (LLM + RAG)
+
+The chatbot behaves like a normal AI assistant: it can answer **any** question
+(coding, studies, career, general knowledge) and remembers the conversation for
+follow-ups. For MIET-specific questions, relevant website passages are retrieved
+and given to the model as trusted context, and source links are shown. If no
+relevant passage exists, no sources are shown and the model is told never to
+invent MIET fees, dates or names. **An API key in `.env` is required for full AI
+answers**; without it the bot falls back to a limited website search.
+
+Retrieval details:
 
 1. `scrape_miet.py` checks **robots.txt**, downloads official pages, cleans the
    text with BeautifulSoup, splits it into ~900-character overlapping chunks and
@@ -95,12 +105,10 @@ honest "not found" handling, API health/chat/validation endpoints.
    pre-seeded so the bot works immediately.
 2. `rag.py` scores chunks against the question with a **TF-IDF cosine retriever**
    (plus a synonym map for student phrasing: "fee" → tuition/cost, etc.).
-3. If `OPENAI_API_KEY` is set, the top chunks + question go to the LLM with strict
-   *"answer only from context, never invent college information"* instructions.
-   Without a key — or if the API errors — the bot builds an **extractive answer**
-   straight from the retrieved chunks, so it still answers specifically.
-4. Every answer returns **clickable source links**. If nothing relevant is
-   retrieved, the bot says so honestly and points to mietjmu.in.
+3. If `OPENAI_API_KEY` is set, the question, recent chat history and any relevant
+   chunks go to the LLM, which answers freely and is told never to invent MIET
+   facts. Without a key, or if the API errors, a limited website search is used.
+4. MIET answers include **clickable source links**; unrelated questions get none.
 
 ## 6. V.E.T.S. Framework Alignment
 
