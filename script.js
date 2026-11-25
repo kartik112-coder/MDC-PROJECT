@@ -114,14 +114,13 @@ async function checkHealth() {
   try {
     const res = await fetch("/api/health");
     const data = await res.json();
-    if (data.status === "ok") {
+    if (data.llm_configured) {
       statusBadge.className = "badge badge-ok";
-      statusBadge.textContent = data.llm_configured
-        ? `● Online · ${data.model} · ${data.chunks} chunks`
-        : `● Limited mode · add an API key to enable full AI`;
-      return;
+      statusBadge.textContent = `● Online · ${data.model} · AI enabled`;
+    } else {
+      statusBadge.className = "badge badge-off";
+      statusBadge.textContent = "● Limited mode · API key missing";
     }
-    throw new Error("bad status");
   } catch {
     statusBadge.className = "badge badge-off";
     statusBadge.textContent = "● Server unreachable";
